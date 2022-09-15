@@ -3,6 +3,7 @@ import io
 import re
 
 import yaml
+from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse
 from django.http.response import JsonResponse
@@ -27,20 +28,8 @@ from .settings import CONFIG
 
 @http_get
 def index(request):
-    param_page_index = request.GET.get("page")
+    param_page_index = request.GET.get("page", 0)
     param_keyword = request.GET.get("keyword")
-
-    # This parameter enables to get entities partially when there are too many entries to return.
-    # When this parameter is emitted, this value will be treated as 0.
-    try:
-        if not param_page_index:
-            index_start = 0
-        else:
-            index_start = int(param_page_index) * CONFIG.MAX_LIST_ENTITIES
-
-    except ValueError:
-        # When an invalid value was specified, this ignores and treats it as 0.
-        index_start = 0
 
     # Get entities under the conditions of specified parameters
     query = Q(is_active=True)
@@ -48,7 +37,15 @@ def index(request):
         query &= Q(name__icontains=param_keyword)
 
     overall_entities = Entity.objects.filter(query).order_by("name")
-    return_entities = overall_entities[index_start : index_start + CONFIG.MAX_LIST_ENTITIES]
+
+    p = Paginator(overall_entities, CONFIG.MAX_LIST_ENTITIES)
+    try:
+        page = int(param_page_index)
+        index_start = page * CONFIG.MAX_LIST_ENTITIES
+        # Page numbers on the entity index page begin with 0.
+        return_entities = p.get_page(page + 1).object_list
+    except ValueError:
+        return HttpResponse("Invalid page number. It must be unsigned integer", status=400)
 
     context = {
         "entities": return_entities,
